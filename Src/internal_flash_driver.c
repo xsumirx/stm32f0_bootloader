@@ -15,24 +15,28 @@ bool FlashErasePage(uint32_t PageAddress)
 bool FlashWrite(volatile uint32_t *flash, const uint8_t *data, uint32_t count)
 {
   uint32_t primask;
-  const uint8_t *data_e;
-  data_e = data + count;
-  uint8_t *flashAddr = ((uint8_t*)((const void*)flash));
+  uint8_t const *data_e;
+  data_e = data + (count-(count%2));
+  uint16_t *flashAddr = ((uint16_t*)((const void*)flash));
   if(READ_BIT(FLASH->CR, FLASH_CR_LOCK) != RESET) return false;
-  do
+  while (data < data_e)
   {
     primask = __get_PRIMASK();
     __disable_irq();
     FLASH->CR = FLASH_CR_PG;
-    *flashAddr = *data;
-    flash += 1;
-    data  += 1;
+    *(__IO uint16_t*)flashAddr = (uint16_t)*((uint16_t *)((void *)data));
+    flashAddr += 1;
+    data  += 2;
     __DMB();
     while (FLASH->SR & FLASH_SR_BSY) continue;
     __set_PRIMASK(primask);
     if (FLASH->SR & (FLASH_SR_PGERR | FLASH_SR_WRPERR)) return false;
   }
-  while (data < data_e);
+  
+  if(count % 2){
+    *(__IO uint16_t*)flashAddr = (uint16_t)*((uint16_t *)((void *)data));
+  }
+  
   
   return true;
 }

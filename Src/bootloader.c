@@ -8,7 +8,7 @@
 
 static UartHandle_t uart;
 extern UART_HandleTypeDef huart2;
-
+extern void MX_IWDG_Init(void);
 typedef void (*pFunction)(void);
 
 //*********** Internal Flash MAP *****************************************************************
@@ -54,7 +54,7 @@ typedef void (*pFunction)(void);
 //************ Local Flags *******************
 #define PERIPHERAL_EXT_FLASH 0x01
 #define FW_INFO_MAGIC         0x5B7A
-#define MAX_BOOT_RETRY  10
+#define MAX_BOOT_RETRY  5
 
 
 //Firmware Update Infomation in External Flash
@@ -81,8 +81,8 @@ __packed typedef struct
 
 //Whole Application Context
 struct Context{
-  uint8_t pStatus;
   struct ExtFwInfo updateInfo;
+  uint8_t pStatus;
 };
 
 
@@ -90,7 +90,6 @@ struct Context ctx = {.pStatus = 0xFF};
 
 #pragma location="SHARED_DATA"
 SharedData_t shared;
-
 
 //Function Forward Declarations
 bool updateAvailable();
@@ -112,7 +111,7 @@ void bootloaderSetup()
 {
   uart.Instance = huart2.Instance;
   UartInit(&uart);
-  LOGD("Hello From Bootloader.....\n");
+  LOGD("******** Bootloader ********\n");
   
   if(shared.magic != FW_INFO_MAGIC){
     LOGD("Booting from poweroff.....\n");
@@ -139,9 +138,9 @@ void bootloaderSetup()
         boot();
       }
       
-      LOGD("Max retry count reached.... Copying fail-safe.\n");
+      LOGD("Max retry count reached ... \nCopying fail-safe ...\n");
       if(copyFailSafe()){
-        LOGD("Succes\n");
+        LOGD("Success\n");
         initBackup();
         boot();
       }else{
@@ -283,12 +282,13 @@ bool copyFailSafe(){
      (info->size < 0 && info->size > (FLASH_FAIL_SIZE_BOOT + FLASH_FAIL_SIZE_INFO)))
    {
       //Haha.....:) There is no fail safe firmware in the device. You are f**ked !
-     int fuckedMessageCount = 10;
-     while(fuckedMessageCount -- < 0){
+     int fuckedMessageCount = 5;
+     while(fuckedMessageCount-- > 0){
        LOGD("There is no fail safe firmware :(\n");
        HAL_Delay(1000);
        shared.retryCount = 0;
-       NVIC_SystemReset();
+       if(fuckedMessageCount == 1)
+         NVIC_SystemReset();
      }
    }
   
@@ -332,7 +332,9 @@ bool eraseBootImage(){
 }
 
 void boot(){
-  LOGD("Booting.....\n");
+  LOGD("Booting..... (%d)\n\n\n", shared.retryCount);
+  HAL_Delay(1000);
+  MX_IWDG_Init();
   pFunction appEntry;
   uint32_t appStack;
   appStack = (uint32_t) *((__IO uint32_t *) FLASH_FW_ADDR_BOOT);
@@ -362,12 +364,15 @@ void boot(){
   appEntry();
 }
 
-
+//Bootloader UartISR
+void BootloaderUartISR(){
+  UartISR(&uart);
+}
 
 //System Function
 int fputc(int ch, FILE *f)
 {
-  UartWrite(&uart, (uint8_t *)ch, 1);
+  UartWrite(&uart, (uint8_t *)&ch, 1);
   return ch;
 }
 
